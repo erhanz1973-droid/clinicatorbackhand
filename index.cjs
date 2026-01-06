@@ -1336,7 +1336,35 @@ app.post("/api/patient/:patientId/messages/admin", (req, res) => {
 
 // ================== CLINIC INFO ==================
 // GET /api/clinic (Public - mobile app için)
+// Query parameter olarak ?code=KAKA gibi clinic code alabilir
 app.get("/api/clinic", (req, res) => {
+  const code = req.query.code ? String(req.query.code).toUpperCase().trim() : null;
+  
+  // If clinic code provided, use /api/clinic/:code logic
+  if (code) {
+    // First check clinics.json (multi-clinic support)
+    const clinics = readJson(CLINICS_FILE, {});
+    let clinic = clinics[code];
+    
+    // If not found in clinics.json, check clinic.json (backward compatibility)
+    if (!clinic) {
+      const singleClinic = readJson(CLINIC_FILE, {});
+      if (singleClinic.clinicCode && singleClinic.clinicCode.toUpperCase() === code) {
+        clinic = singleClinic;
+      }
+    }
+    
+    // If found, return clinic info (without password)
+    if (clinic) {
+      const { password, ...publicClinic } = clinic;
+      return res.json(publicClinic);
+    }
+    
+    // If no match, return 404
+    return res.status(404).json({ ok: false, error: "clinic_not_found", code });
+  }
+  
+  // If no code provided, return default (backward compatibility)
   const defaultClinic = {
     clinicCode: "MOON",
     name: "Cliniflow Dental Clinic",
