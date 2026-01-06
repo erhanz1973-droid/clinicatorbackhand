@@ -1299,6 +1299,22 @@ app.get("/api/patient/:patientId/messages", (req, res) => {
     const existing = readJson(chatFile, { messages: [] });
     
     const messages = Array.isArray(existing.messages) ? existing.messages : [];
+    
+    // Debug: log messages with attachment
+    const attachmentMessages = messages.filter((m: any) => m.type === "attachment" || m.attachment);
+    if (attachmentMessages.length > 0) {
+      console.log(`[GET MESSAGES] Patient ${patientId} has ${attachmentMessages.length} attachment message(s):`);
+      attachmentMessages.forEach((m: any, idx: number) => {
+        console.log(`[GET MESSAGES] Attachment message ${idx + 1}:`, {
+          id: m.id,
+          type: m.type,
+          hasAttachment: !!m.attachment,
+          attachment: m.attachment,
+          text: m.text,
+        });
+      });
+    }
+    
     console.log("GET messages: Returning", messages.length, "messages for patient", patientId);
     res.json({ ok: true, messages });
   } catch (error) {
