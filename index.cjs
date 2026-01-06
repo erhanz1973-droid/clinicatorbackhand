@@ -194,12 +194,20 @@ app.post("/api/register", (req, res) => {
     let found = false;
     
     // Direct lookup by key (most efficient)
-    if (clinics[code] && clinics[code].clinicCode) {
-      found = true;
-      validatedClinicCode = code;
-      console.log(`[REGISTER] ✅ Found clinic "${code}" in clinics.json (direct lookup)`);
-    } else {
-      // Fallback: loop through all clinics (in case key doesn't match exactly)
+    // Key itself is the clinic code, or clinic.clinicCode matches
+    if (clinics[code]) {
+      const clinic = clinics[code];
+      // If key exists, it's valid (key is the clinic code)
+      // Also check if clinicCode field matches (for consistency)
+      if (!clinic.clinicCode || String(clinic.clinicCode).toUpperCase() === code) {
+        found = true;
+        validatedClinicCode = code;
+        console.log(`[REGISTER] ✅ Found clinic "${code}" in clinics.json (direct lookup by key)`);
+      }
+    }
+    
+    // Fallback: loop through all clinics (in case key doesn't match exactly)
+    if (!found) {
       for (const key in clinics) {
         const clinic = clinics[key];
         console.log(`[REGISTER] Checking key "${key}": clinic.clinicCode="${clinic?.clinicCode}", match=${clinic && clinic.clinicCode && String(clinic.clinicCode).toUpperCase() === code}`);
@@ -361,12 +369,20 @@ app.post("/api/patient/register", (req, res) => {
     let found = false;
     
     // Direct lookup by key (most efficient)
-    if (clinics[code] && clinics[code].clinicCode) {
-      found = true;
-      validatedClinicCode = code;
-      console.log(`[REGISTER /api/patient/register] ✅ Found clinic "${code}" in clinics.json (direct lookup)`);
-    } else {
-      // Fallback: loop through all clinics (in case key doesn't match exactly)
+    // Key itself is the clinic code, or clinic.clinicCode matches
+    if (clinics[code]) {
+      const clinic = clinics[code];
+      // If key exists, it's valid (key is the clinic code)
+      // Also check if clinicCode field matches (for consistency)
+      if (!clinic.clinicCode || String(clinic.clinicCode).toUpperCase() === code) {
+        found = true;
+        validatedClinicCode = code;
+        console.log(`[REGISTER /api/patient/register] ✅ Found clinic "${code}" in clinics.json (direct lookup by key)`);
+      }
+    }
+    
+    // Fallback: loop through all clinics (in case key doesn't match exactly)
+    if (!found) {
       for (const key in clinics) {
         const clinic = clinics[key];
         console.log(`[REGISTER /api/patient/register] Checking key "${key}": clinic.clinicCode="${clinic?.clinicCode}", match=${clinic && clinic.clinicCode && String(clinic.clinicCode).toUpperCase() === code}`);
