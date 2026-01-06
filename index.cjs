@@ -7,7 +7,26 @@ const http = require("http");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
-const supabase = require("./supabase");
+
+// Conditionally require supabase (optional - falls back to file-based storage)
+let supabase = null;
+try {
+  supabase = require("./supabase");
+} catch (error) {
+  console.warn("[INIT] ⚠️  Supabase module not found. Using file-based storage.");
+  // Create a fallback object with stub functions
+  supabase = {
+    isSupabaseAvailable: () => false,
+    getClinicByCode: async () => null,
+    getAllClinics: async () => ({}),
+    createClinic: async () => null,
+    updateClinic: async () => null,
+    getPatientById: async () => null,
+    getPatientsByClinicCode: async () => [],
+    createPatient: async () => null,
+    updatePatient: async () => null,
+  };
+}
 
 const app = express();
 const server = http.createServer(app);
