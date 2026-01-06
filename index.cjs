@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const http = require("http");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const multer = require("multer");
 
 const app = express();
 const server = http.createServer(app);
@@ -1381,6 +1382,196 @@ app.post("/api/patient/:patientId/messages", requireToken, (req, res) => {
     res.json({ ok: true, message: newMessage });
   } catch (error) {
     console.error("Patient message send error:", error);
+    res.status(500).json({ ok: false, error: error?.message || "internal_error" });
+  }
+});
+
+// ================== FILE UPLOAD ==================
+// Configure multer for file uploads
+const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const patientId = req.params.patientId;
+    const patientUploadDir = path.join(UPLOADS_DIR, patientId);
+    if (!fs.existsSync(patientUploadDir)) {
+      fs.mkdirSync(patientUploadDir, { recursive: true });
+    }
+    cb(null, patientUploadDir);
+  },
+  filename: (req, file, cb) => {
+    // Generate unique filename: timestamp_random_originalname
+    const timestamp = Date.now();
+    const random = crypto.randomBytes(4).toString("hex");
+    const ext = path.extname(file.originalname);
+    const name = path.basename(file.originalname, ext);
+    const safeName = name.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const filename = `${timestamp}_${random}_${safeName}${ext}`;
+    cb(null, filename);
+  },
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB max
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow: images (jpg, png), PDF, ZIP
+    const allowedMimes = [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "application/pdf",
+      "application/zip",
+    ];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type not allowed: ${file.mimetype}. Allowed: ${allowedMimes.join(", ")}`));
+    }
+  },
+});
+
+// POST /api/patient/:patientId/upload
+// Upload file (requires token, but NOT requireApproved - PENDING patients can upload)
+app.post("/api/patient/:patientId/upload", requireToken, (req, res, next) => {
+  console.log(`[UPLOAD] ========== START ==========`);
+  console.log(`[UPLOAD] Patient ID from URL: ${req.params.patientId}`);
+  console.log(`[UPLOAD] Patient ID from token: ${req.patientId}`);
+  console.log(`[UPLOAD] Content-Type: ${req.headers["content-type"]}`);
+  console.log(`[UPLOAD] Content-Length: ${req.headers["content-length"]}`);
+  next();
+}, upload.single("file"), (req, res) => {
+  try {
+    const patientId = req.params.patientId;
+    
+    console.log(`[UPLOAD] Processing upload for patient: ${patientId}`);
+    
+    if (!patientId) {
+      console.log(`[UPLOAD] Error: patientId_required`);
+      return res.status(400).json({ ok: false, error: "patientId_required" });
+    }
+    
+    // Token'dan gelen patientId ile URL'deki patientId eşleşmeli
+    if (req.patientId !== patientId) {
+      console.log(`[UPLOAD] Error: patientId_mismatch (token: ${req.patientId}, url: ${patientId})`);
+      return res.status(403).json({ ok: false, error: "patientId_mismatch" });
+    }
+    
+    if (!req.file) {
+      console.log(`[UPLOAD] Error: file_required`);
+      console.log(`[UPLOAD] Request body keys:`, Object.keys(req.body || {}));
+      console.log(`[UPLOAD] Request files:`, req.files);
+      return res.status(400).json({ ok: false, error: "file_required", received: { body: req.body, files: req.files } });
+    }
+    
+    const file = req.file;
+    const fileId = `file_${now()}_${crypto.randomBytes(4).toString("hex")}`;
+    const downloadUrl = `/api/patient/${patientId}/files/${file.filename}`;
+    
+    console.log(`[UPLOAD] ✅ Success: Patient ${patientId} uploaded file: ${file.originalname} (${file.size} bytes, ${file.mimetype})`);
+    console.log(`[UPLOAD] Saved to: ${file.path}`);
+    console.log(`[UPLOAD] Download URL: ${downloadUrl}`);
+    console.log(`[UPLOAD] ========== END ==========`);
+    
+    res.json({
+      ok: true,
+      file: {
+        id: fileId,
+        name: file.originalname,
+        mime: file.mimetype,
+        size: file.size,
+        url: downloadUrl,
+      },
+    });
+  } catch (error) {
+    console.error(`[UPLOAD] ❌ Error:`, error);
+    console.error(`[UPLOAD] Error stack:`, error?.stack);
+    res.status(500).json({ ok: false, error: error?.message || "internal_error" });
+  }
+}, (error, req, res, next) => {
+  // Multer error handler
+  console.error(`[UPLOAD] ❌ Multer error:`, error);
+  if (error instanceof multer.MulterError) {
+    if (error.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({ ok: false, error: "file_too_large", message: "File size exceeds 100MB limit" });
+    }
+    return res.status(400).json({ ok: false, error: "upload_error", message: error.message });
+  }
+  if (error) {
+    return res.status(400).json({ ok: false, error: "upload_error", message: error.message });
+  }
+  next();
+});
+
+// GET /api/patient/:patientId/files/:filename
+// Secure file download (only that patient can download)
+// Supports both Authorization header and ?token= query parameter (for React Native Linking)
+app.get("/api/patient/:patientId/files/:filename", (req, res) => {
+  try {
+    const patientId = req.params.patientId;
+    const filename = req.params.filename;
+    
+    if (!patientId || !filename) {
+      return res.status(400).json({ ok: false, error: "patientId_and_filename_required" });
+    }
+    
+    // Get token from header or query parameter
+    const auth = req.headers.authorization || "";
+    const tokenFromHeader = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    const tokenFromQuery = req.query.token || "";
+    const finalToken = tokenFromHeader || tokenFromQuery;
+    
+    if (!finalToken) {
+      console.log("[DOWNLOAD] Missing token");
+      return res.status(401).json({ ok: false, error: "missing_token" });
+    }
+    
+    const tokens = readJson(TOK_FILE, {});
+    const t = tokens[finalToken];
+    if (!t?.patientId) {
+      console.log(`[DOWNLOAD] Bad token: ${finalToken.substring(0, 10)}...`);
+      return res.status(401).json({ ok: false, error: "bad_token" });
+    }
+    
+    // Token'dan gelen patientId ile URL'deki patientId eşleşmeli
+    if (t.patientId !== patientId) {
+      console.log(`[DOWNLOAD] Patient ID mismatch: token=${t.patientId}, url=${patientId}`);
+      return res.status(403).json({ ok: false, error: "patientId_mismatch" });
+    }
+    
+    // Security: Prevent path traversal
+    if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) {
+      return res.status(400).json({ ok: false, error: "invalid_filename" });
+    }
+    
+    const filePath = path.join(UPLOADS_DIR, patientId, filename);
+    
+    if (!fs.existsSync(filePath)) {
+      console.log(`[DOWNLOAD] File not found: ${filePath}`);
+      return res.status(404).json({ ok: false, error: "file_not_found" });
+    }
+    
+    console.log(`[DOWNLOAD] Patient ${patientId} downloading file: ${filename}`);
+    
+    // Set appropriate content type
+    const ext = path.extname(filename).toLowerCase();
+    const contentTypeMap: Record<string, string> = {
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".png": "image/png",
+      ".pdf": "application/pdf",
+      ".zip": "application/zip",
+    };
+    const contentType = contentTypeMap[ext] || "application/octet-stream";
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+    
+    res.sendFile(path.resolve(filePath));
+  } catch (error) {
+    console.error("File download error:", error);
     res.status(500).json({ ok: false, error: error?.message || "internal_error" });
   }
 });
