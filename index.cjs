@@ -54,6 +54,22 @@ app.get("/health", (req, res) => {
   res.json({ ok: true, server: "index.cjs", time: now() });
 });
 
+// ================== DEBUG: Check clinics.json ==================
+app.get("/api/debug/clinics", (req, res) => {
+  const clinics = readJson(CLINICS_FILE, {});
+  const clinic = readJson(CLINIC_FILE, {});
+  res.json({
+    ok: true,
+    clinicsFileExists: fs.existsSync(CLINICS_FILE),
+    clinicsFilePath: CLINICS_FILE,
+    clinicsFileKeys: Object.keys(clinics),
+    clinicsFileContent: clinics,
+    clinicFileExists: fs.existsSync(CLINIC_FILE),
+    clinicFilePath: CLINIC_FILE,
+    clinicFileClinicCode: clinic.clinicCode || null,
+  });
+});
+
 // ================== REGISTER ==================
 app.post("/api/register", (req, res) => {
   const { name = "", phone = "", referralCode = "", clinicCode = "" } = req.body || {};
