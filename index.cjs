@@ -2167,16 +2167,27 @@ app.post("/api/admin/login", async (req, res) => {
       // Verify password hash
       console.log(`[LOGIN] Verifying password for clinic "${code}"...`);
       console.log(`[LOGIN] Stored password hash (first 20 chars): ${clinic.password.substring(0, 20)}...`);
+      console.log(`[LOGIN] Attempted password (length): ${String(password).trim().length} characters`);
+      
       const passwordMatch = await bcrypt.compare(String(password).trim(), clinic.password);
       if (!passwordMatch) {
         console.log(`[LOGIN] ❌ Password mismatch for clinic "${code}"`);
-        console.log(`[LOGIN] Attempted password length: ${String(password).trim().length}`);
-        // Also try with default password as fallback (for testing/debugging)
-        const defaultPassword = "admin123";
-        const defaultMatch = await bcrypt.compare(defaultPassword, clinic.password);
-        if (defaultMatch) {
-          console.log(`[LOGIN] ℹ️ Note: Default password "admin123" would work for this clinic`);
+        
+        // Try common passwords for debugging
+        const commonPasswords = ["admin123", "password", "123456", "admin", "MOON", "moon"];
+        for (const commonPwd of commonPasswords) {
+          const commonMatch = await bcrypt.compare(commonPwd, clinic.password);
+          if (commonMatch) {
+            console.log(`[LOGIN] ℹ️ Note: Password "${commonPwd}" would work for this clinic`);
+            break;
+          }
         }
+        
+        // Also check if password is plain text (shouldn't happen, but for debugging)
+        if (clinic.password === String(password).trim()) {
+          console.log(`[LOGIN] ⚠️ WARNING: Password appears to be stored in plain text!`);
+        }
+        
         return res.status(401).json({ ok: false, error: "invalid_clinic_code_or_password" });
       }
       console.log(`[LOGIN] ✅ Password verified for clinic "${code}"`);
@@ -2421,19 +2432,6 @@ app.post("/api/admin/forgot-password/reset", async (req, res) => {
       return res.status(401).json({ ok: false, error: "invalid_clinic_code_or_email" });
     }
     
-    const code = String(clinicCode).trim().toUpperCase();
-    const emailLower = String(email).trim().toLowerCase();
-    const clinic = readJson(CLINIC_FILE, {});
-    
-    // Verify clinic code and email again
-    if (!clinic.clinicCode || clinic.clinicCode.toUpperCase() !== code) {
-      return res.status(401).json({ ok: false, error: "invalid_clinic_code_or_email" });
-    }
-    
-    if (!clinic.email || clinic.email.toLowerCase() !== emailLower) {
-      return res.status(401).json({ ok: false, error: "invalid_clinic_code_or_email" });
-    }
-    
     // Hash new password
     const hashedPassword = await bcrypt.hash(String(newPassword).trim(), 10);
     clinic.password = hashedPassword;
@@ -2445,12 +2443,42 @@ app.post("/api/admin/forgot-password/reset", async (req, res) => {
       clinics[code].updatedAt = now();
       writeJson(CLINICS_FILE, clinics);
       console.log(`[FORGOT-PASSWORD] ✅ Password reset for clinic "${code}" in clinics.json`);
+      
+      // Verify the write
+      const verifyClinics = readJson(CLINICS_FILE, {});
+      const verifyClinic = verifyClinics[code];
+      if (verifyClinic && verifyClinic.password) {
+        const verifyMatch = await bcrypt.compare(String(newPassword).trim(), verifyClinic.password);
+        if (verifyMatch) {
+          console.log(`[FORGOT-PASSWORD] ✅ Verification successful: New password works for clinic "${code}"`);
+        } else {
+          console.error(`[FORGOT-PASSWORD] ❌ Verification failed: New password does NOT work for clinic "${code}"`);
+        }
+      } else {
+        console.error(`[FORGOT-PASSWORD] ❌ Verification failed: Clinic "${code}" not found after write`);
+      }
     } else {
+      clinic.password = hashedPassword;
+      clinic.updatedAt = now();
       writeJson(CLINIC_FILE, clinic);
       console.log(`[FORGOT-PASSWORD] ✅ Password reset for clinic "${code}" in clinic.json`);
+      
+      // Verify the write
+      const verifyClinic = readJson(CLINIC_FILE, {});
+      if (verifyClinic && verifyClinic.password) {
+        const verifyMatch = await bcrypt.compare(String(newPassword).trim(), verifyClinic.password);
+        if (verifyMatch) {
+          console.log(`[FORGOT-PASSWORD] ✅ Verification successful: New password works for clinic "${code}"`);
+        } else {
+          console.error(`[FORGOT-PASSWORD] ❌ Verification failed: New password does NOT work for clinic "${code}"`);
+        }
+      } else {
+        console.error(`[FORGOT-PASSWORD] ❌ Verification failed: Clinic "${code}" not found after write`);
+      }
     }
     
-    res.json({ ok: true });
+    console.log(`[FORGOT-PASSWORD] ✅ Password reset successful for clinic "${code}"`);
+    res.json({ ok: true, message: "Password reset successfully" });
   } catch (error) {
     console.error("Forgot password reset error:", error);
     res.status(500).json({ ok: false, error: error?.message || "internal_error" });
