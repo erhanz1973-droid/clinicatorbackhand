@@ -36,54 +36,94 @@ const ADMIN_TOKENS_FILE = path.join(DATA_DIR, "adminTokens.json"); // JWT tokens
 // Migrate clinic.json to clinics.json if clinics.json doesn't exist or is empty
 // This runs on every server start to handle Render's ephemeral filesystem
 (function initializeClinicsJson() {
-  console.log(`[INIT] ========== INITIALIZING CLINICS.JSON ==========`);
-  console.log(`[INIT] CLINICS_FILE path: ${CLINICS_FILE}`);
-  console.log(`[INIT] CLINICS_FILE exists: ${fs.existsSync(CLINICS_FILE)}`);
-  console.log(`[INIT] CLINIC_FILE path: ${CLINIC_FILE}`);
-  console.log(`[INIT] CLINIC_FILE exists: ${fs.existsSync(CLINIC_FILE)}`);
-  
-  const clinics = readJson(CLINICS_FILE, {});
-  const clinic = readJson(CLINIC_FILE, {});
-  
-  console.log(`[INIT] clinics.json keys:`, Object.keys(clinics));
-  console.log(`[INIT] clinic.json clinicCode:`, clinic.clinicCode);
-  
-  // If clinics.json is empty but clinic.json has data, migrate it
-  if (Object.keys(clinics).length === 0 && clinic.clinicCode) {
-    console.log(`[INIT] Migrating clinic.json to clinics.json...`);
-    console.log(`[INIT] Clinic code: ${clinic.clinicCode}`);
+  try {
+    console.log(`[INIT] ========== INITIALIZING CLINICS.JSON ==========`);
+    console.log(`[INIT] CLINICS_FILE path: ${CLINICS_FILE}`);
+    console.log(`[INIT] CLINICS_FILE exists: ${fs.existsSync(CLINICS_FILE)}`);
+    console.log(`[INIT] CLINIC_FILE path: ${CLINIC_FILE}`);
+    console.log(`[INIT] CLINIC_FILE exists: ${fs.existsSync(CLINIC_FILE)}`);
     
-    const clinicCode = String(clinic.clinicCode).toUpperCase().trim();
-    clinics[clinicCode] = {
-      ...clinic,
-      clinicCode: clinicCode,
-    };
-    
-    writeJson(CLINICS_FILE, clinics);
-    console.log(`[INIT] ✅ Migrated clinic "${clinicCode}" to clinics.json`);
-    
-    // Verify the write
-    const verifyClinics = readJson(CLINICS_FILE, {});
-    console.log(`[INIT] Verified clinics.json keys:`, Object.keys(verifyClinics));
-    if (verifyClinics[clinicCode]) {
-      console.log(`[INIT] ✅ Verification successful: clinic "${clinicCode}" exists in clinics.json`);
-    } else {
-      console.error(`[INIT] ❌ Verification failed: clinic "${clinicCode}" NOT found in clinics.json!`);
+    // Ensure data directory exists
+    if (!fs.existsSync(DATA_DIR)) {
+      console.log(`[INIT] Creating data directory: ${DATA_DIR}`);
+      fs.mkdirSync(DATA_DIR, { recursive: true });
     }
-  } else if (Object.keys(clinics).length === 0) {
-    // If both are empty, create empty clinics.json
-    console.log(`[INIT] Creating empty clinics.json file...`);
-    writeJson(CLINICS_FILE, {});
-    console.log(`[INIT] ✅ Created empty clinics.json`);
     
-    // Verify the write
-    const verifyExists = fs.existsSync(CLINICS_FILE);
-    console.log(`[INIT] Verified clinics.json exists: ${verifyExists}`);
-  } else {
-    console.log(`[INIT] clinics.json already exists with ${Object.keys(clinics).length} clinic(s):`, Object.keys(clinics));
+    const clinics = readJson(CLINICS_FILE, {});
+    const clinic = readJson(CLINIC_FILE, {});
+    
+    console.log(`[INIT] clinics.json keys:`, Object.keys(clinics));
+    console.log(`[INIT] clinic.json clinicCode:`, clinic.clinicCode);
+    
+    let needsWrite = false;
+    
+    // If clinics.json is empty but clinic.json has data, migrate it
+    if (Object.keys(clinics).length === 0 && clinic.clinicCode) {
+      console.log(`[INIT] Migrating clinic.json to clinics.json...`);
+      console.log(`[INIT] Clinic code: ${clinic.clinicCode}`);
+      
+      const clinicCode = String(clinic.clinicCode).toUpperCase().trim();
+      clinics[clinicCode] = {
+        ...clinic,
+        clinicCode: clinicCode,
+      };
+      
+      needsWrite = true;
+    } else if (Object.keys(clinics).length === 0) {
+      // If both are empty, create empty clinics.json
+      console.log(`[INIT] Creating empty clinics.json file...`);
+      needsWrite = true;
+    } else {
+      console.log(`[INIT] clinics.json already exists with ${Object.keys(clinics).length} clinic(s):`, Object.keys(clinics));
+    }
+    
+    // Write clinics.json if needed
+    if (needsWrite) {
+      try {
+        writeJson(CLINICS_FILE, clinics);
+        console.log(`[INIT] ✅ Wrote clinics.json file`);
+        
+        // Verify the write
+        const verifyExists = fs.existsSync(CLINICS_FILE);
+        const verifyClinics = readJson(CLINICS_FILE, {});
+        console.log(`[INIT] Verified clinics.json exists: ${verifyExists}`);
+        console.log(`[INIT] Verified clinics.json keys:`, Object.keys(verifyClinics));
+        
+        if (clinic.clinicCode) {
+          const clinicCode = String(clinic.clinicCode).toUpperCase().trim();
+          if (verifyClinics[clinicCode]) {
+            console.log(`[INIT] ✅ Verification successful: clinic "${clinicCode}" exists in clinics.json`);
+          } else {
+            console.error(`[INIT] ❌ Verification failed: clinic "${clinicCode}" NOT found in clinics.json!`);
+          }
+        }
+      } catch (writeError) {
+        console.error(`[INIT] ❌ Failed to write clinics.json:`, writeError);
+        console.error(`[INIT] Write error details:`, {
+          message: writeError.message,
+          stack: writeError.stack,
+          path: CLINICS_FILE,
+          dataDirExists: fs.existsSync(DATA_DIR),
+          dataDirWritable: fs.accessSync ? (() => {
+            try {
+              fs.accessSync(DATA_DIR, fs.constants.W_OK);
+              return true;
+            } catch {
+              return false;
+            }
+          })() : 'unknown',
+        });
+      }
+    }
+    
+    console.log(`[INIT] ========== END INITIALIZATION ==========`);
+  } catch (error) {
+    console.error(`[INIT] ❌ Initialization error:`, error);
+    console.error(`[INIT] Error details:`, {
+      message: error.message,
+      stack: error.stack,
+    });
   }
-  
-  console.log(`[INIT] ========== END INITIALIZATION ==========`);
 })();
 
 function readJson(file, fallback) {
@@ -1449,29 +1489,49 @@ app.get("/api/clinic", (req, res) => {
 // GET /api/clinic/:code (Public - get clinic by code)
 app.get("/api/clinic/:code", (req, res) => {
   const code = String(req.params.code || "").toUpperCase().trim();
+  console.log(`[CLINIC] GET /api/clinic/:code - Requested code: "${code}"`);
+  
   if (!code) {
+    console.log(`[CLINIC] ❌ No clinic code provided`);
     return res.status(400).json({ ok: false, error: "clinic_code_required" });
   }
   
+  console.log(`[CLINIC] CLINICS_FILE path: ${CLINICS_FILE}`);
+  console.log(`[CLINIC] CLINICS_FILE exists: ${fs.existsSync(CLINICS_FILE)}`);
+  
   // First check clinics.json (multi-clinic support)
   const clinics = readJson(CLINICS_FILE, {});
+  console.log(`[CLINIC] clinics.json keys:`, Object.keys(clinics));
   let clinic = clinics[code];
   
   // If not found in clinics.json, check clinic.json (backward compatibility)
   if (!clinic) {
+    console.log(`[CLINIC] Clinic "${code}" not found in clinics.json, checking clinic.json...`);
     const singleClinic = readJson(CLINIC_FILE, {});
+    console.log(`[CLINIC] clinic.json clinicCode:`, singleClinic.clinicCode);
     if (singleClinic.clinicCode && singleClinic.clinicCode.toUpperCase() === code) {
       clinic = singleClinic;
+      console.log(`[CLINIC] ✅ Found clinic "${code}" in clinic.json`);
+    } else {
+      console.log(`[CLINIC] ❌ Clinic "${code}" not found in either file`);
     }
+  } else {
+    console.log(`[CLINIC] ✅ Found clinic "${code}" in clinics.json`);
   }
   
   // If found, return clinic info (without password)
   if (clinic) {
     const { password, ...publicClinic } = clinic;
+    console.log(`[CLINIC] ✅ Returning clinic info for "${code}":`, {
+      name: publicClinic.name,
+      clinicCode: publicClinic.clinicCode,
+      email: publicClinic.email ? "***" : null,
+    });
     return res.json(publicClinic);
   }
   
   // If no match, return 404
+  console.log(`[CLINIC] ❌ Clinic "${code}" not found. Available clinics:`, Object.keys(clinics));
   res.status(404).json({ ok: false, error: "clinic_not_found", code });
 });
 
@@ -2051,28 +2111,43 @@ app.post("/api/admin/login", async (req, res) => {
     
     const code = String(clinicCode).trim().toUpperCase();
     
+    console.log(`[LOGIN] Attempting login for clinic code: "${code}"`);
+    console.log(`[LOGIN] CLINICS_FILE path: ${CLINICS_FILE}`);
+    console.log(`[LOGIN] CLINICS_FILE exists: ${fs.existsSync(CLINICS_FILE)}`);
+    
     // First check clinics.json (multi-clinic support)
     const clinics = readJson(CLINICS_FILE, {});
+    console.log(`[LOGIN] clinics.json keys:`, Object.keys(clinics));
     let clinic = clinics[code];
     
     // If not found in clinics.json, check clinic.json (backward compatibility)
     if (!clinic) {
+      console.log(`[LOGIN] Clinic "${code}" not found in clinics.json, checking clinic.json...`);
       const singleClinic = readJson(CLINIC_FILE, {});
+      console.log(`[LOGIN] clinic.json clinicCode:`, singleClinic.clinicCode);
       if (singleClinic.clinicCode && singleClinic.clinicCode.toUpperCase() === code) {
         clinic = singleClinic;
+        console.log(`[LOGIN] ✅ Found clinic "${code}" in clinic.json`);
+      } else {
+        console.log(`[LOGIN] ❌ Clinic "${code}" not found in either file`);
       }
+    } else {
+      console.log(`[LOGIN] ✅ Found clinic "${code}" in clinics.json`);
     }
     
     // Check if clinic exists
     if (!clinic) {
+      console.log(`[LOGIN] ❌ Clinic "${code}" does not exist. Available clinics:`, Object.keys(clinics));
       return res.status(401).json({ ok: false, error: "invalid_clinic_code_or_password" });
     }
     
     // Check password
     if (!clinic.password) {
+      console.log(`[LOGIN] Clinic "${code}" has no password set, using default password`);
       // If no password is set, allow login with default password "admin123" (for initial setup)
       const defaultPassword = "admin123";
       if (password !== defaultPassword) {
+        console.log(`[LOGIN] ❌ Password mismatch for clinic "${code}" (no password set, expected default)`);
         return res.status(401).json({ ok: false, error: "invalid_clinic_code_or_password" });
       }
       // Set default password hash for first login
@@ -2083,15 +2158,28 @@ app.post("/api/admin/login", async (req, res) => {
       if (clinics[code]) {
         clinics[code].password = hashedPassword;
         writeJson(CLINICS_FILE, clinics);
+        console.log(`[LOGIN] ✅ Set default password for clinic "${code}" in clinics.json`);
       } else {
         writeJson(CLINIC_FILE, clinic);
+        console.log(`[LOGIN] ✅ Set default password for clinic "${code}" in clinic.json`);
       }
     } else {
       // Verify password hash
+      console.log(`[LOGIN] Verifying password for clinic "${code}"...`);
+      console.log(`[LOGIN] Stored password hash (first 20 chars): ${clinic.password.substring(0, 20)}...`);
       const passwordMatch = await bcrypt.compare(String(password).trim(), clinic.password);
       if (!passwordMatch) {
+        console.log(`[LOGIN] ❌ Password mismatch for clinic "${code}"`);
+        console.log(`[LOGIN] Attempted password length: ${String(password).trim().length}`);
+        // Also try with default password as fallback (for testing/debugging)
+        const defaultPassword = "admin123";
+        const defaultMatch = await bcrypt.compare(defaultPassword, clinic.password);
+        if (defaultMatch) {
+          console.log(`[LOGIN] ℹ️ Note: Default password "admin123" would work for this clinic`);
+        }
         return res.status(401).json({ ok: false, error: "invalid_clinic_code_or_password" });
       }
+      console.log(`[LOGIN] ✅ Password verified for clinic "${code}"`);
     }
     
     // Generate JWT token
@@ -2100,6 +2188,8 @@ app.post("/api/admin/login", async (req, res) => {
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN }
     );
+    
+    console.log(`[LOGIN] ✅ Login successful for clinic "${code}"`);
     
     res.json({
       ok: true,
@@ -2243,18 +2333,34 @@ app.post("/api/admin/forgot-password/verify", (req, res) => {
     
     const code = String(clinicCode).trim().toUpperCase();
     const emailLower = String(email).trim().toLowerCase();
-    const clinic = readJson(CLINIC_FILE, {});
     
-    // Check if clinic code matches
-    if (!clinic.clinicCode || clinic.clinicCode.toUpperCase() !== code) {
+    console.log(`[FORGOT-PASSWORD] Verifying clinic code: "${code}", email: "${emailLower}"`);
+    
+    // First check clinics.json (multi-clinic support)
+    const clinics = readJson(CLINICS_FILE, {});
+    let clinic = clinics[code];
+    
+    // If not found in clinics.json, check clinic.json (backward compatibility)
+    if (!clinic) {
+      console.log(`[FORGOT-PASSWORD] Clinic "${code}" not found in clinics.json, checking clinic.json...`);
+      clinic = readJson(CLINIC_FILE, {});
+      if (clinic.clinicCode && clinic.clinicCode.toUpperCase() !== code) {
+        clinic = null;
+      }
+    }
+    
+    if (!clinic) {
+      console.log(`[FORGOT-PASSWORD] ❌ Clinic "${code}" not found`);
       return res.status(401).json({ ok: false, error: "invalid_clinic_code_or_email" });
     }
     
     // Check if email matches
     if (!clinic.email || clinic.email.toLowerCase() !== emailLower) {
+      console.log(`[FORGOT-PASSWORD] ❌ Email mismatch for clinic "${code}"`);
       return res.status(401).json({ ok: false, error: "invalid_clinic_code_or_email" });
     }
     
+    console.log(`[FORGOT-PASSWORD] ✅ Verification successful for clinic "${code}"`);
     res.json({ ok: true });
   } catch (error) {
     console.error("Forgot password verify error:", error);
@@ -2286,6 +2392,37 @@ app.post("/api/admin/forgot-password/reset", async (req, res) => {
     
     const code = String(clinicCode).trim().toUpperCase();
     const emailLower = String(email).trim().toLowerCase();
+    
+    console.log(`[FORGOT-PASSWORD] Resetting password for clinic code: "${code}", email: "${emailLower}"`);
+    
+    // First check clinics.json (multi-clinic support)
+    const clinics = readJson(CLINICS_FILE, {});
+    let clinic = clinics[code];
+    let isInClinicsJson = true;
+    
+    // If not found in clinics.json, check clinic.json (backward compatibility)
+    if (!clinic) {
+      console.log(`[FORGOT-PASSWORD] Clinic "${code}" not found in clinics.json, checking clinic.json...`);
+      clinic = readJson(CLINIC_FILE, {});
+      isInClinicsJson = false;
+      if (clinic.clinicCode && clinic.clinicCode.toUpperCase() !== code) {
+        clinic = null;
+      }
+    }
+    
+    if (!clinic) {
+      console.log(`[FORGOT-PASSWORD] ❌ Clinic "${code}" not found`);
+      return res.status(401).json({ ok: false, error: "invalid_clinic_code_or_email" });
+    }
+    
+    // Check if email matches
+    if (!clinic.email || clinic.email.toLowerCase() !== emailLower) {
+      console.log(`[FORGOT-PASSWORD] ❌ Email mismatch for clinic "${code}"`);
+      return res.status(401).json({ ok: false, error: "invalid_clinic_code_or_email" });
+    }
+    
+    const code = String(clinicCode).trim().toUpperCase();
+    const emailLower = String(email).trim().toLowerCase();
     const clinic = readJson(CLINIC_FILE, {});
     
     // Verify clinic code and email again
@@ -2302,7 +2439,16 @@ app.post("/api/admin/forgot-password/reset", async (req, res) => {
     clinic.password = hashedPassword;
     clinic.updatedAt = now();
     
-    writeJson(CLINIC_FILE, clinic);
+    // Update in the appropriate file
+    if (isInClinicsJson) {
+      clinics[code].password = hashedPassword;
+      clinics[code].updatedAt = now();
+      writeJson(CLINICS_FILE, clinics);
+      console.log(`[FORGOT-PASSWORD] ✅ Password reset for clinic "${code}" in clinics.json`);
+    } else {
+      writeJson(CLINIC_FILE, clinic);
+      console.log(`[FORGOT-PASSWORD] ✅ Password reset for clinic "${code}" in clinic.json`);
+    }
     
     res.json({ ok: true });
   } catch (error) {
