@@ -1362,8 +1362,11 @@ app.post("/api/patient/:patientId/messages", requireToken, (req, res) => {
       patientId: req.patientId,
     };
     
+    console.log("[MESSAGE] newMessage before attachment:", JSON.stringify(newMessage, null, 2));
+    
     // Add attachment if present
-    if (type === "attachment" && attachment) {
+    // Check both type === "attachment" OR if attachment object exists
+    if ((type === "attachment" || attachment) && attachment) {
       console.log("[MESSAGE] ✅ Adding attachment to message");
       newMessage.attachment = {
         id: String(attachment.id || ""),
@@ -1372,9 +1375,14 @@ app.post("/api/patient/:patientId/messages", requireToken, (req, res) => {
         size: Number(attachment.size || 0),
         url: String(attachment.url || ""),
       };
-      console.log("[MESSAGE] Attachment added:", newMessage.attachment);
+      // Also set type to "attachment" if it's not already
+      if (newMessage.type !== "attachment") {
+        console.log("[MESSAGE] ⚠️ Type was not 'attachment', setting it now");
+        newMessage.type = "attachment";
+      }
+      console.log("[MESSAGE] Attachment added:", JSON.stringify(newMessage.attachment, null, 2));
     } else {
-      console.log("[MESSAGE] ❌ No attachment added - type:", type, "attachment exists:", !!attachment);
+      console.log("[MESSAGE] ❌ No attachment added - type:", type, "attachment exists:", !!attachment, "attachment value:", attachment);
     }
     
     messages.push(newMessage);
@@ -1388,6 +1396,16 @@ app.post("/api/patient/:patientId/messages", requireToken, (req, res) => {
     writeJson(chatFile, payload);
     console.log("[MESSAGE] ✅ Message saved successfully");
     console.log("[MESSAGE] Final message:", JSON.stringify(newMessage, null, 2));
+    
+    // Verify the saved message by reading it back
+    const verifyFile = readJson(chatFile, { messages: [] });
+    const savedMessage = verifyFile.messages?.find((m: any) => m.id === newMessage.id);
+    if (savedMessage) {
+      console.log("[MESSAGE] ✅ Verified saved message:", JSON.stringify(savedMessage, null, 2));
+    } else {
+      console.log("[MESSAGE] ❌ WARNING: Saved message not found in file!");
+    }
+    
     console.log("[MESSAGE] ========== END MESSAGE CREATION ==========");
     res.json({ ok: true, message: newMessage });
   } catch (error) {
