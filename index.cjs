@@ -1457,6 +1457,9 @@ app.post("/api/patient/:patientId/upload", requireToken, (req, res, next) => {
   console.log(`[UPLOAD] Patient ID from token: ${req.patientId}`);
   console.log(`[UPLOAD] Content-Type: ${req.headers["content-type"]}`);
   console.log(`[UPLOAD] Content-Length: ${req.headers["content-length"]}`);
+  console.log(`[UPLOAD] Method: ${req.method}`);
+  console.log(`[UPLOAD] URL: ${req.url}`);
+  console.log(`[UPLOAD] Headers:`, JSON.stringify(req.headers, null, 2));
   next();
 }, upload.single("file"), (req, res) => {
   try {
@@ -1509,11 +1512,22 @@ app.post("/api/patient/:patientId/upload", requireToken, (req, res, next) => {
 }, (error, req, res, next) => {
   // Multer error handler
   console.error(`[UPLOAD] ❌ Multer error:`, error);
+  console.error(`[UPLOAD] Multer error details:`, {
+    message: error?.message,
+    name: error?.name,
+    code: error?.code,
+    field: error?.field,
+  });
+  
   if (error instanceof multer.MulterError) {
+    console.error(`[UPLOAD] Multer error code: ${error.code}`);
     if (error.code === "LIMIT_FILE_SIZE") {
       return res.status(400).json({ ok: false, error: "file_too_large", message: "File size exceeds 100MB limit" });
     }
-    return res.status(400).json({ ok: false, error: "upload_error", message: error.message });
+    if (error.code === "LIMIT_UNEXPECTED_FILE") {
+      return res.status(400).json({ ok: false, error: "unexpected_file_field", message: `Unexpected file field: ${error.field}. Expected: "file"` });
+    }
+    return res.status(400).json({ ok: false, error: error.code, message: error.message });
   }
   if (error) {
     return res.status(400).json({ ok: false, error: "upload_error", message: error.message });
