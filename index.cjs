@@ -1531,17 +1531,74 @@ app.get("/api/patient/:patientId/files/:filename", (req, res) => {
       return res.status(401).json({ ok: false, error: "missing_token" });
     }
     
+    // Try patient token first
     const tokens = readJson(TOK_FILE, {});
     const t = tokens[finalToken];
-    if (!t?.patientId) {
-      console.log(`[DOWNLOAD] Bad token: ${finalToken.substring(0, 10)}...`);
-      return res.status(401).json({ ok: false, error: "bad_token" });
+    let isAuthorized = false;
+    
+    if (t?.patientId) {
+      // Patient token: patientId must match
+      if (t.patientId === patientId) {
+        isAuthorized = true;
+        console.log(`[DOWNLOAD] Patient ${patientId} authorized via patient token`);
+      } else {
+        console.log(`[DOWNLOAD] Patient ID mismatch: token=${t.patientId}, url=${patientId}`);
+      }
     }
     
-    // Token'dan gelen patientId ile URL'deki patientId eşleşmeli
-    if (t.patientId !== patientId) {
-      console.log(`[DOWNLOAD] Patient ID mismatch: token=${t.patientId}, url=${patientId}`);
-      return res.status(403).json({ ok: false, error: "patientId_mismatch" });
+    // If not authorized with patient token, try admin token
+    if (!isAuthorized) {
+      try {
+        const adminTokens = readJson(ADMIN_TOKENS_FILE, {});
+        const adminTokenData = adminTokens[finalToken];
+        if (adminTokenData?.clinicCode) {
+          // Admin token: check if patient belongs to this clinic
+          const patients = readJson(PAT_FILE, {});
+          const patient = patients[patientId];
+          if (patient && patient.clinicCode && String(patient.clinicCode).toUpperCase() === String(adminTokenData.clinicCode).toUpperCase()) {
+            isAuthorized = true;
+            console.log(`[DOWNLOAD] Admin authorized for patient ${patientId} (clinic: ${adminTokenData.clinicCode})`);
+          } else {
+            // Also try JWT verification for admin
+            try {
+              const decoded = jwt.verify(finalToken, JWT_SECRET);
+              if (decoded.clinicCode) {
+                // Admin with JWT token - allow access to any patient in their clinic
+                const patients = readJson(PAT_FILE, {});
+                const patient = patients[patientId];
+                if (patient && patient.clinicCode && String(patient.clinicCode).toUpperCase() === String(decoded.clinicCode).toUpperCase()) {
+                  isAuthorized = true;
+                  console.log(`[DOWNLOAD] Admin authorized via JWT for patient ${patientId} (clinic: ${decoded.clinicCode})`);
+                }
+              }
+            } catch (jwtError) {
+              // Not a JWT token, continue
+            }
+          }
+        } else {
+          // Try JWT verification
+          try {
+            const decoded = jwt.verify(finalToken, JWT_SECRET);
+            if (decoded.clinicCode) {
+              const patients = readJson(PAT_FILE, {});
+              const patient = patients[patientId];
+              if (patient && patient.clinicCode && String(patient.clinicCode).toUpperCase() === String(decoded.clinicCode).toUpperCase()) {
+                isAuthorized = true;
+                console.log(`[DOWNLOAD] Admin authorized via JWT for patient ${patientId} (clinic: ${decoded.clinicCode})`);
+              }
+            }
+          } catch (jwtError) {
+            // Not a valid JWT token
+          }
+        }
+      } catch (adminError) {
+        console.error("[DOWNLOAD] Admin token check error:", adminError);
+      }
+    }
+    
+    if (!isAuthorized) {
+      console.log(`[DOWNLOAD] Unauthorized: token=${finalToken.substring(0, 10)}...`);
+      return res.status(403).json({ ok: false, error: "unauthorized" });
     }
     
     // Security: Prevent path traversal
