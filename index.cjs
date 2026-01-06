@@ -525,7 +525,11 @@ app.get("/api/admin/patients", requireAdmin, (req, res) => {
   for (const reg of regsList) {
     const regClinicCode = reg.clinicCode ? String(reg.clinicCode).toUpperCase() : "";
     // Only include patients from this clinic
-    if (regClinicCode !== clinicCode) continue;
+    // IMPORTANT: If regClinicCode is empty, skip it (old patients without clinicCode should not appear)
+    if (!regClinicCode || regClinicCode !== clinicCode) {
+      console.log(`[GET /api/admin/patients] Skipping registration: patientId=${reg.patientId}, regClinicCode="${regClinicCode}", expected="${clinicCode}"`);
+      continue;
+    }
     
     const id = reg.patientId || reg.requestId;
     if (id) {
@@ -546,7 +550,11 @@ app.get("/api/admin/patients", requireAdmin, (req, res) => {
   for (const patient of patientsList) {
     const patientClinicCode = patient.clinicCode ? String(patient.clinicCode).toUpperCase() : "";
     // Only include patients from this clinic
-    if (patientClinicCode !== clinicCode) continue;
+    // IMPORTANT: If patientClinicCode is empty, skip it (old patients without clinicCode should not appear)
+    if (!patientClinicCode || patientClinicCode !== clinicCode) {
+      console.log(`[GET /api/admin/patients] Skipping patient: patientId=${patient.patientId}, patientClinicCode="${patientClinicCode}", expected="${clinicCode}"`);
+      continue;
+    }
     
     const id = patient.patientId;
     if (id) {
