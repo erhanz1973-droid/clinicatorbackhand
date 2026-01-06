@@ -1434,6 +1434,11 @@ const upload = multer({
   },
 });
 
+// Test endpoint to verify upload route is loaded
+app.get("/api/test/upload-route", (req, res) => {
+  res.json({ ok: true, message: "Upload route is loaded", multer: typeof multer !== "undefined" });
+});
+
 // POST /api/patient/:patientId/upload
 // Upload file (requires token, but NOT requireApproved - PENDING patients can upload)
 app.post("/api/patient/:patientId/upload", requireToken, (req, res, next) => {
