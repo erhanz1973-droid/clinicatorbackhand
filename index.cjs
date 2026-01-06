@@ -1322,7 +1322,14 @@ app.post("/api/patient/:patientId/messages", requireToken, (req, res) => {
     const type = String(body.type || "text").trim();
     const attachment = body.attachment || null;
     
-    console.log("Patient message - patientId:", patientId, "text length:", text.length, "type:", type, "has attachment:", !!attachment, "body keys:", Object.keys(body));
+    console.log("[MESSAGE] ========== START MESSAGE CREATION ==========");
+    console.log("[MESSAGE] Patient ID:", patientId);
+    console.log("[MESSAGE] Body keys:", Object.keys(body));
+    console.log("[MESSAGE] Body.type:", body.type, "(raw)");
+    console.log("[MESSAGE] Parsed type:", type);
+    console.log("[MESSAGE] Body.attachment:", body.attachment ? "EXISTS" : "NULL", body.attachment);
+    console.log("[MESSAGE] Text length:", text.length);
+    console.log("[MESSAGE] ============================================");
     
     // For attachment messages, text can be empty but attachment must exist
     if (!text && type !== "attachment") {
@@ -1357,6 +1364,7 @@ app.post("/api/patient/:patientId/messages", requireToken, (req, res) => {
     
     // Add attachment if present
     if (type === "attachment" && attachment) {
+      console.log("[MESSAGE] ✅ Adding attachment to message");
       newMessage.attachment = {
         id: String(attachment.id || ""),
         name: String(attachment.name || ""),
@@ -1364,6 +1372,9 @@ app.post("/api/patient/:patientId/messages", requireToken, (req, res) => {
         size: Number(attachment.size || 0),
         url: String(attachment.url || ""),
       };
+      console.log("[MESSAGE] Attachment added:", newMessage.attachment);
+    } else {
+      console.log("[MESSAGE] ❌ No attachment added - type:", type, "attachment exists:", !!attachment);
     }
     
     messages.push(newMessage);
@@ -1375,7 +1386,9 @@ app.post("/api/patient/:patientId/messages", requireToken, (req, res) => {
     };
     
     writeJson(chatFile, payload);
-    console.log("Patient message saved:", { id: newMessage.id, type: newMessage.type, hasAttachment: !!newMessage.attachment });
+    console.log("[MESSAGE] ✅ Message saved successfully");
+    console.log("[MESSAGE] Final message:", JSON.stringify(newMessage, null, 2));
+    console.log("[MESSAGE] ========== END MESSAGE CREATION ==========");
     res.json({ ok: true, message: newMessage });
   } catch (error) {
     console.error("Patient message send error:", error);
