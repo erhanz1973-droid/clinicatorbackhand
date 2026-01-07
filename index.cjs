@@ -324,6 +324,7 @@ app.post("/api/register", async (req, res) => {
     patientId,
     name: String(name || ""),
     phone: String(phone || ""),
+    clinicCode: validatedClinicCode, // Add clinicCode to registration
     status: "PENDING",
     clinicCode: validatedClinicCode, // Add clinicCode to registration
     createdAt: now(),
@@ -453,6 +454,7 @@ app.post("/api/patient/register", async (req, res) => {
     patientId,
     name: String(name || ""),
     phone: String(phone || ""),
+    clinicCode: validatedClinicCode, // Add clinicCode to registration
     status: "PENDING",
     createdAt: now(),
     updatedAt: now(),
