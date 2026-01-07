@@ -173,12 +173,20 @@ async function validateClinicCode(code) {
   const codeUpper = String(code).trim().toUpperCase();
   
   // Try Supabase first
-  if (supabase.isSupabaseAvailable()) {
+  const isSupabaseAvailable = supabase && supabase.isSupabaseAvailable && supabase.isSupabaseAvailable();
+  console.log(`[VALIDATE] Checking clinic "${codeUpper}" - Supabase available: ${isSupabaseAvailable}`);
+  
+  if (isSupabaseAvailable) {
+    console.log(`[VALIDATE] Checking Supabase for clinic "${codeUpper}"...`);
     const clinic = await supabase.getClinicByCode(codeUpper);
     if (clinic) {
       console.log(`[VALIDATE] ✅ Found clinic "${codeUpper}" in Supabase`);
       return { found: true, clinicCode: codeUpper, clinic };
+    } else {
+      console.log(`[VALIDATE] Clinic "${codeUpper}" not found in Supabase, checking JSON files...`);
     }
+  } else {
+    console.log(`[VALIDATE] Supabase not available, checking JSON files for clinic "${codeUpper}"...`);
   }
   
   // Fallback to JSON files
@@ -202,17 +210,25 @@ async function validateClinicCode(code) {
 // Get all clinics - Supabase first, then JSON fallback
 async function getAllClinicsData() {
   // Try Supabase first
-  if (supabase.isSupabaseAvailable()) {
+  const isSupabaseAvailable = supabase && supabase.isSupabaseAvailable && supabase.isSupabaseAvailable();
+  console.log(`[GET_CLINICS] Getting all clinics - Supabase available: ${isSupabaseAvailable}`);
+  
+  if (isSupabaseAvailable) {
+    console.log(`[GET_CLINICS] Checking Supabase for clinics...`);
     const clinics = await supabase.getAllClinics();
     if (Object.keys(clinics).length > 0) {
-      console.log(`[GET_CLINICS] ✅ Retrieved ${Object.keys(clinics).length} clinic(s) from Supabase`);
+      console.log(`[GET_CLINICS] ✅ Retrieved ${Object.keys(clinics).length} clinic(s) from Supabase:`, Object.keys(clinics));
       return clinics;
+    } else {
+      console.log(`[GET_CLINICS] No clinics found in Supabase, falling back to JSON files...`);
     }
+  } else {
+    console.log(`[GET_CLINICS] Supabase not available, using JSON files...`);
   }
   
   // Fallback to JSON
   const clinics = readJson(CLINICS_FILE, {});
-  console.log(`[GET_CLINICS] Retrieved ${Object.keys(clinics).length} clinic(s) from clinics.json`);
+  console.log(`[GET_CLINICS] Retrieved ${Object.keys(clinics).length} clinic(s) from clinics.json:`, Object.keys(clinics));
   return clinics;
 }
 
@@ -222,8 +238,8 @@ app.get("/health", (req, res) => {
   res.json({ ok: true, server: "index.cjs", time: now() });
 });
 
-// ================== DEBUG: Check clinics.json ==================
-app.get("/api/debug/clinics", (req, res) => {
+// ================== DEBUG: Check clinics.json and Supabase ==================
+app.get("/api/debug/clinics", async (req, res) => {
   const clinics = readJson(CLINICS_FILE, {});
   const clinic = readJson(CLINIC_FILE, {});
   console.log(`[DEBUG] CLINICS_FILE path: ${CLINICS_FILE}`);
@@ -231,12 +247,26 @@ app.get("/api/debug/clinics", (req, res) => {
   console.log(`[DEBUG] clinics.json keys:`, Object.keys(clinics));
   console.log(`[DEBUG] clinics.json content:`, JSON.stringify(clinics, null, 2));
   console.log(`[DEBUG] clinic.json content:`, JSON.stringify(clinic, null, 2));
+  
+  // Check Supabase if available
+  let supabaseClinics = {};
+  let supabaseAvailable = false;
+  if (supabase && supabase.isSupabaseAvailable && supabase.isSupabaseAvailable()) {
+    supabaseAvailable = true;
+    console.log(`[DEBUG] Checking Supabase for clinics...`);
+    supabaseClinics = await getAllClinicsData();
+    console.log(`[DEBUG] Supabase clinics:`, Object.keys(supabaseClinics));
+  }
+  
   res.json({
     ok: true,
     clinicsFileExists: fs.existsSync(CLINICS_FILE),
     clinicsFilePath: CLINICS_FILE,
     clinicsFileKeys: Object.keys(clinics),
     clinicsFileContent: clinics,
+    supabaseAvailable: supabaseAvailable,
+    supabaseClinicKeys: Object.keys(supabaseClinics),
+    supabaseClinics: supabaseClinics,
     clinicFileExists: fs.existsSync(CLINIC_FILE),
     clinicFilePath: CLINIC_FILE,
     clinicFileClinicCode: clinic.clinicCode || null,
@@ -1782,20 +1812,49 @@ app.post("/api/patient/:patientId/messages/admin", (req, res) => {
 // ================== CLINIC INFO ==================
 // GET /api/clinic (Public - mobile app için)
 // Query parameter olarak ?code=KAKA gibi clinic code alabilir
-app.get("/api/clinic", (req, res) => {
+app.get("/api/clinic", async (req, res) => {
   const code = req.query.code ? String(req.query.code).toUpperCase().trim() : null;
   
   // If clinic code provided, use /api/clinic/:code logic
   if (code) {
-    // First check clinics.json (multi-clinic support)
-    const clinics = readJson(CLINICS_FILE, {});
-    let clinic = clinics[code];
+    let clinic = null;
     
-    // If not found in clinics.json, check clinic.json (backward compatibility)
+    // Try Supabase first (if available)
+    if (supabase && supabase.isSupabaseAvailable && supabase.isSupabaseAvailable()) {
+      console.log(`[CLINIC] GET /api/clinic?code=${code} - Checking Supabase...`);
+      const supabaseClinic = await supabase.getClinicByCode(code);
+      if (supabaseClinic) {
+        console.log(`[CLINIC] ✅ Found clinic "${code}" in Supabase`);
+        // Convert Supabase format to JSON format (snake_case to camelCase)
+        clinic = {
+          clinicCode: supabaseClinic.clinic_code,
+          name: supabaseClinic.name,
+          email: supabaseClinic.email,
+          address: supabaseClinic.address || "",
+          phone: supabaseClinic.phone || "",
+          website: supabaseClinic.website || "",
+          logoUrl: supabaseClinic.logo_url || "",
+          googleMapsUrl: supabaseClinic.google_maps_url || "",
+          defaultInviterDiscountPercent: supabaseClinic.default_inviter_discount_percent,
+          defaultInvitedDiscountPercent: supabaseClinic.default_invited_discount_percent,
+          createdAt: supabaseClinic.created_at,
+          updatedAt: supabaseClinic.updated_at,
+        };
+      }
+    }
+    
+    // Fallback to JSON files if not found in Supabase
     if (!clinic) {
-      const singleClinic = readJson(CLINIC_FILE, {});
-      if (singleClinic.clinicCode && singleClinic.clinicCode.toUpperCase() === code) {
-        clinic = singleClinic;
+      // First check clinics.json (multi-clinic support)
+      const clinics = readJson(CLINICS_FILE, {});
+      clinic = clinics[code];
+      
+      // If not found in clinics.json, check clinic.json (backward compatibility)
+      if (!clinic) {
+        const singleClinic = readJson(CLINIC_FILE, {});
+        if (singleClinic.clinicCode && singleClinic.clinicCode.toUpperCase() === code) {
+          clinic = singleClinic;
+        }
       }
     }
     
@@ -2660,7 +2719,18 @@ app.post("/api/admin/register", async (req, res) => {
     const name = String(clinicName).trim();
     const emailLower = String(email).trim().toLowerCase();
     
-    // Check if clinic code already exists
+    // Check if clinic code already exists - check Supabase first
+    let existingClinic = null;
+    if (supabase && supabase.isSupabaseAvailable && supabase.isSupabaseAvailable()) {
+      console.log(`[REGISTER] Checking Supabase for existing clinic "${code}"...`);
+      existingClinic = await supabase.getClinicByCode(code);
+      if (existingClinic) {
+        console.log(`[REGISTER] ❌ Clinic "${code}" already exists in Supabase`);
+        return res.status(409).json({ ok: false, error: "clinic_code_already_exists" });
+      }
+    }
+    
+    // Check JSON files for backward compatibility
     const clinic = readJson(CLINIC_FILE, {});
     if (clinic.clinicCode && clinic.clinicCode.toUpperCase() === code) {
       return res.status(409).json({ ok: false, error: "clinic_code_already_exists" });
@@ -3070,6 +3140,19 @@ app.post("/api/events", (req, res) => {
 });
 
 // ================== START ==================
+// Log Supabase status on startup
+const supabaseStatus = supabase && supabase.isSupabaseAvailable && supabase.isSupabaseAvailable();
+console.log(`[INIT] ========== SUPABASE STATUS ==========`);
+console.log(`[INIT] Supabase module loaded: ${supabase !== null}`);
+console.log(`[INIT] Supabase available: ${supabaseStatus}`);
+if (supabaseStatus) {
+  console.log(`[INIT] ✅ Supabase is ENABLED - clinics will be stored in Supabase`);
+} else {
+  console.log(`[INIT] ⚠️  Supabase is DISABLED - using file-based storage`);
+  console.log(`[INIT] To enable Supabase, set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables`);
+}
+console.log(`[INIT] =====================================`);
+
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Server running: http://127.0.0.1:${PORT}`);
   console.log(`✅ Health:        http://127.0.0.1:${PORT}/health`);
